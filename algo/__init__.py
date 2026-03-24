@@ -1,0 +1,1 @@
+"""CSP Wordle solver algorithms."""

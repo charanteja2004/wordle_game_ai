@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSP Wordle Solver</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+</head>
+
+<body>
+
+  <!-- Top bar (logo always visible, input moves here after start) -->
+  <div class="top-bar" id="top-bar">
+    <span class="logo">CSP WORDLE</span>
+    <div class="controls" id="top-controls">
+      <!-- input lands here after animation -->
+    </div>
+  </div>
+
+  <!-- Hero / center input (visible before game) -->
+  <div class="hero" id="hero">
+    <!-- Scrolling word marquee background -->
+    <div class="word-marquee" id="word-marquee"></div>
+    <div class="hero-content">
+      <!-- Title tiles serve as the grid icon now -->
+      <h1 class="hero-title">
+        <span class="title-row">
+          <span class="title-tile tt-green" style="animation-delay:0.3s">C</span>
+          <span class="title-tile tt-grey" style="animation-delay:0.42s">S</span>
+          <span class="title-tile tt-green" style="animation-delay:0.54s">P</span>
+        </span>
+        <span class="title-row">
+          <span class="title-tile tt-green" style="animation-delay:0.7s">W</span>
+          <span class="title-tile tt-yellow" style="animation-delay:0.82s">O</span>
+          <span class="title-tile tt-green" style="animation-delay:0.94s">R</span>
+          <span class="title-tile tt-grey" style="animation-delay:1.06s">D</span>
+          <span class="title-tile tt-green" style="animation-delay:1.18s">L</span>
+          <span class="title-tile tt-yellow" style="animation-delay:1.30s">E</span>
+        </span>
+        <span class="title-row">
+          <span class="title-tile tt-green" style="animation-delay:1.5s">S</span>
+          <span class="title-tile tt-green" style="animation-delay:1.62s">O</span>
+          <span class="title-tile tt-yellow" style="animation-delay:1.74s">L</span>
+          <span class="title-tile tt-green" style="animation-delay:1.86s">V</span>
+          <span class="title-tile tt-grey" style="animation-delay:1.98s">E</span>
+          <span class="title-tile tt-green" style="animation-delay:2.10s">R</span>
+        </span>
+      </h1>
+      <p class="hero-subtitle">Watch AI solve Wordle using constraint satisfaction, entropy maximization, and
+        backtracking search</p>
+      <div class="hero-input-wrap" id="hero-input-wrap">
+        <input type="text" id="secret-word" maxlength="15" placeholder="Type a secret word..." spellcheck="false"
+          autocomplete="off" autofocus>
+        <button class="btn-start" id="btn-start" onclick="initGame()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3" />
+          </svg>
+          <span>Start</span>
+        </button>
+      </div>
+      <div id="error-msg" class="error-msg"></div>
+      <button class="btn-random" id="btn-random" onclick="pickRandomWord()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="1" y="1" width="8" height="8" rx="1"/><rect x="15" y="1" width="8" height="8" rx="1"/>
+          <rect x="1" y="15" width="8" height="8" rx="1"/><rect x="15" y="15" width="8" height="8" rx="1"/>
+          <circle cx="5" cy="5" r="1" fill="currentColor"/><circle cx="19" cy="5" r="1" fill="currentColor"/>
+          <circle cx="5" cy="19" r="1" fill="currentColor"/><circle cx="19" cy="19" r="1" fill="currentColor"/>
+          <circle cx="12" cy="12" r="1" fill="currentColor"/>
+        </svg>
+        <span>Random word</span>
+      </button>
+      <div class="hero-hints">
+        <span class="hero-hint">3-15 letters</span>
+        <span class="hero-dot"></span>
+        <span class="hero-hint">English words only</span>
+        <span class="hero-dot"></span>
+        <span class="hero-hint">Press Enter to start</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Game area (hidden until game starts, fades in) -->
+  <div class="game-wrapper hidden" id="game-wrapper">
+    <div class="main-row" id="game-area">
+      <!-- Left column -->
+      <div>
+        <div id="board" class="board" style="grid-template-columns:repeat(5,52px)"></div>
+        <div class="status-line" id="status-line"></div>
+        <div id="error-msg-game" class="error-msg"></div>
+        <button class="btn-next" id="btn-next" disabled onclick="nextGuess()">Next guess</button>
+        <div class="prediction">
+          <div class="prediction-label">AI prediction</div>
+          <div class="pred-pills" id="pred-pills"></div>
+          <div class="pred-stats mono" id="pred-stats"></div>
+        </div>
+      </div>
+      <!-- Right column -->
+      <div>
+        <div class="algo-pills">
+          <span class="algo-pill">Entropy</span>
+          <span class="algo-pill">AC-3</span>
+          <span class="algo-pill">Backtracking</span>
+        </div>
+        <div id="cy"></div>
+        <div class="algo-stats mono" id="algo-stats"></div>
+        <div class="trace-section">
+          <div class="trace-label">Trace log</div>
+          <div class="trace-container">
+            <div class="trace-header"><span>Step</span><span>Description</span><span>Status</span></div>
+            <div id="trace-body"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Domain grid -->
+    <div class="domain-section" id="domain-section">
+      <div id="domain-grid"></div>
+    </div>
+
+    <!-- State cards -->
+    <div class="state-cards" id="state-cards">
+      <div class="state-card">
+        <div class="card-title">Start State</div>
+        <div><span class="big-num" id="start-wl">-</span> <span class="label">letters</span></div>
+        <div><span class="big-num" id="start-tc">-</span> <span class="label">candidates</span></div>
+        <div><span class="big-num" id="start-dom">-</span> <span class="label">domains</span></div>
+      </div>
+      <div class="state-card hidden">
+        <div class="card-title">End State</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI Concepts Reference — Fade Carousel -->
+  <div class="concepts-section minimalist-carousel-section">
+    <div class="carousel-header">
+      <div class="concepts-header-title">AI foundations used in this solver</div>
+      <div class="carousel-nav">
+        <span class="carousel-counter" id="carousel-counter">01 / 14</span>
+        <button class="carousel-btn" onclick="fadeCarousel(-1)" aria-label="Previous">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M15 19l-7-7 7-7"></path>
+          </svg>
+        </button>
+        <button class="carousel-btn" onclick="fadeCarousel(1)" aria-label="Next">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M9 5l7 7-7 7"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="fade-carousel" id="concepts-carousel">
+
+      <!-- 01 -->
+      <div class="fade-slide active cat-purple">
+        <div class="slide-content">
+          <div class="cat-label">Core framework &mdash; constraint satisfaction</div>
+          <div class="slide-title-area">
+            <span class="concept-num">01</span>
+            <h3 class="slide-title">Constraint satisfaction problem</h3>
+          </div>
+          <p class="slide-desc">The solver reformulates Wordle as a classic CSP &lang;X, D, C&rang;. Variables X = {P<sub>0</sub>, P<sub>1</sub>, &hellip;, P<sub>n-1</sub>} represent each letter slot. Domains D(P<sub>i</sub>) &sube; {a&ndash;z} hold the currently legal letters per position. Constraints C encode every piece of feedback: exact matches (green), misplaced letters (yellow), and absent letters (grey). A solution is a complete assignment &sigma;: X &rarr; D that satisfies all constraints simultaneously &mdash; i.e., a valid candidate word. This formulation unlocks the entire CSP algorithmic toolkit: propagation, arc consistency, heuristic ordering, and backtracking &mdash; turning a word game into a rigorous search problem.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/csp.py</span>
+            <span class="aima">AIMA Ch. 6</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 02 -->
+      <div class="fade-slide cat-purple">
+        <div class="slide-content">
+          <div class="cat-label">Core framework &mdash; constraint satisfaction</div>
+          <div class="slide-title-area">
+            <span class="concept-num">02</span>
+            <h3 class="slide-title">Constraint propagation</h3>
+          </div>
+          <p class="slide-desc">Rather than passively storing constraints and checking them during search, the solver actively propagates their consequences to shrink variable domains before any guessing begins. A green clue collapses D(P<sub>i</sub>) to a singleton {c}. A yellow clue removes c from D(P<sub>i</sub>) while adding a global &ldquo;must-contain&rdquo; constraint guaranteeing c appears in at least one other slot. A grey clue eliminates c from every position's domain (unless another instance is green/yellow). Crucially, these propagations cascade: shrinking one domain may trigger further eliminations in neighboring variables, producing a fixpoint &mdash; a maximally reduced state before any search is invoked. This often cuts the candidate list by 80&ndash;95% after a single guess.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/csp.py &rarr; apply_constraints()</span>
+            <span class="aima">AIMA Ch. 6.2</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 03 -->
+      <div class="fade-slide cat-teal">
+        <div class="slide-content">
+          <div class="cat-label">Search techniques</div>
+          <div class="slide-title-area">
+            <span class="concept-num">03</span>
+            <h3 class="slide-title">Backtracking search</h3>
+          </div>
+          <p class="slide-desc">The backbone search strategy is depth-first backtracking over the CSP's assignment space. It assigns one variable at a time &mdash; choosing a letter c &isin; D(P<sub>i</sub>) &mdash; then checks whether the partial assignment is consistent with all active constraints. If consistent, it recurses to the next unassigned variable; if not, it backtracks, undoing the assignment and trying the next value. This avoids the combinatorial explosion of generate-and-test (which would need to enumerate up to 26<sup>n</sup> assignments). Backtracking guarantees completeness &mdash; if a valid word exists, the solver will find it &mdash; and its efficiency depends heavily on the heuristics (MRV, LCV, forward checking) layered on top, which reduce the effective branching factor from ~26 to often &lt;3.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/backtracking.py</span>
+            <span class="aima">AIMA Ch. 6.3</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 04 -->
+      <div class="fade-slide cat-teal">
+        <div class="slide-content">
+          <div class="cat-label">Search techniques</div>
+          <div class="slide-title-area">
+            <span class="concept-num">04</span>
+            <h3 class="slide-title">Informed search &amp; heuristic evaluation</h3>
+          </div>
+          <p class="slide-desc">The solver doesn't pick guesses at random &mdash; it uses Shannon entropy as a heuristic evaluation function, analogous to how A* search uses h(n) to prioritize the most promising frontier node. For each candidate guess g, the solver computes the expected information gain: how evenly g partitions the remaining candidate set across all 3<sup>n</sup> possible feedback patterns. A guess that creates many small, equally-sized partitions has high entropy &asymp; high discriminative power. This transforms the &ldquo;which word next?&rdquo; decision from blind trial-and-error into a principled best-first selection, consistently reducing the expected solve depth from 5&ndash;6 guesses (random) to 3&ndash;4 (entropy-guided).</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/entropy.py &rarr; rank_guesses()</span>
+            <span class="aima">AIMA Ch. 3.5&ndash;3.6</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 05 -->
+      <div class="fade-slide cat-blue">
+        <div class="slide-content">
+          <div class="cat-label">Variable &amp; value ordering</div>
+          <div class="slide-title-area">
+            <span class="concept-num">05</span>
+            <h3 class="slide-title">Minimum remaining values (MRV)</h3>
+          </div>
+          <p class="slide-desc">Also called the fail-first heuristic. When selecting which variable to assign next during backtracking, always pick the position P<sub>i</sub> with the smallest |D(P<sub>i</sub>)|. Intuition: if P<sub>3</sub> has only {a, e} while P<sub>0</sub> still has 18 candidates, assigning P<sub>3</sub> first means we'll discover a dead end (if one exists) after at most 2 branches &mdash; not 18. This exponentially reduces the number of nodes explored by ensuring failures surface at shallow depths. In practice, MRV combined with constraint propagation often reduces backtracking to near-zero for typical Wordle states, because the tightly constrained positions get resolved first and cascade domain reductions to the rest.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/backtracking.py &rarr; select_variable_mrv()</span>
+            <span class="aima">AIMA Ch. 6.3.1</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 06 -->
+      <div class="fade-slide cat-blue">
+        <div class="slide-content">
+          <div class="cat-label">Variable &amp; value ordering</div>
+          <div class="slide-title-area">
+            <span class="concept-num">06</span>
+            <h3 class="slide-title">Least constraining value (LCV)</h3>
+          </div>
+          <p class="slide-desc">The fail-last principle for value ordering &mdash; the complement of MRV. Once we've selected which position to assign (via MRV), we must decide which letter to try first. LCV scores each candidate letter c by counting how many values it would eliminate from neighboring variables' domains if assigned. We try the letter that rules out the fewest options elsewhere first. Why? If we're going to succeed, we want to maximize the flexibility left for unassigned positions, giving them the best chance of finding a consistent value without backtracking. MRV asks &ldquo;where is failure most likely?&rdquo; and goes there first; LCV asks &ldquo;which choice is most likely to succeed?&rdquo; and tries it first. Together, they prune the tree from both ends.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/backtracking.py &rarr; order_values_lcv()</span>
+            <span class="aima">AIMA Ch. 6.3.1</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 07 -->
+      <div class="fade-slide cat-blue">
+        <div class="slide-content">
+          <div class="cat-label">Variable &amp; value ordering</div>
+          <div class="slide-title-area">
+            <span class="concept-num">07</span>
+            <h3 class="slide-title">Degree heuristic</h3>
+          </div>
+          <p class="slide-desc">A tiebreaker for MRV. When two or more positions share the same smallest domain size, the degree heuristic selects the one involved in the most active constraints with other unassigned variables. A position constrained by multiple yellow/green interactions with other slots is harder to satisfy downstream &mdash; resolving it early propagates more information and avoids deep, wasted backtracking branches. In Wordle terms: if P<sub>1</sub> and P<sub>4</sub> both have |D| = 3, but P<sub>1</sub> participates in a &ldquo;must-contain&rdquo; constraint, a &ldquo;not-duplicate&rdquo; constraint, and an arc-consistency constraint with P<sub>2</sub>, while P<sub>4</sub> has only one constraint &mdash; assign P<sub>1</sub> first. Degree + MRV together implement a robust variable-ordering policy that minimizes expected tree size.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/backtracking.py</span>
+            <span class="aima">AIMA Ch. 6.3.1</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 08 -->
+      <div class="fade-slide cat-amber">
+        <div class="slide-content">
+          <div class="cat-label">Pruning &amp; consistency</div>
+          <div class="slide-title-area">
+            <span class="concept-num">08</span>
+            <h3 class="slide-title">Forward checking</h3>
+          </div>
+          <p class="slide-desc">A lightweight look-ahead strategy that catches dead ends one step before they happen. Immediately after assigning P<sub>i</sub> = c, forward checking inspects every unassigned variable P<sub>j</sub> that shares a constraint with P<sub>i</sub> and removes any value from D(P<sub>j</sub>) that is now inconsistent with the assignment. If any D(P<sub>j</sub>) becomes empty (&empty;), we know the current path is unsolvable &mdash; backtrack immediately without exploring further. This avoids the &ldquo;thrashing&rdquo; behavior of naive backtracking, where an inconsistency at depth k isn't discovered until depth k+3. Forward checking is O(n &middot; d) per assignment but saves exponential work by preventing doomed subtrees from ever being entered. It's the minimum viable pruning &mdash; cheap, effective, and always on.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/forward_check.py</span>
+            <span class="aima">AIMA Ch. 6.3.2</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 09 -->
+      <div class="fade-slide cat-amber">
+        <div class="slide-content">
+          <div class="cat-label">Pruning &amp; consistency</div>
+          <div class="slide-title-area">
+            <span class="concept-num">09</span>
+            <h3 class="slide-title">AC-3 arc consistency</h3>
+          </div>
+          <p class="slide-desc">A stronger consistency enforcement than forward checking, operating on all variable pairs, not just those adjacent to the latest assignment. AC-3 maintains a queue of arcs (P<sub>i</sub>, P<sub>j</sub>). For each arc, it checks: does every value a &isin; D(P<sub>i</sub>) have at least one supporting value b &isin; D(P<sub>j</sub>) such that the pair (a, b) satisfies all constraints between P<sub>i</sub> and P<sub>j</sub>? If not, a is removed from D(P<sub>i</sub>). Whenever a domain shrinks, all arcs pointing into that variable are re-queued for re-examination. The algorithm terminates at a fixpoint &mdash; a state where every remaining value is pairwise consistent. Worst-case complexity is O(n<sup>2</sup>d<sup>3</sup>), but in practice it converges quickly on Wordle's small (n=5) problem and often eliminates values that forward checking alone would miss.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/ac3.py</span>
+            <span class="aima">AIMA Ch. 6.2.2</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 10 -->
+      <div class="fade-slide cat-amber">
+        <div class="slide-content">
+          <div class="cat-label">Pruning &amp; consistency</div>
+          <div class="slide-title-area">
+            <span class="concept-num">10</span>
+            <h3 class="slide-title">Singleton propagation (unit propagation)</h3>
+          </div>
+          <p class="slide-desc">Inspired by unit propagation in SAT solvers. When any consistency technique (forward checking or AC-3) reduces a domain to exactly one value &mdash; |D(P<sub>i</sub>)| = 1 &mdash; that value is a forced assignment. Singleton propagation treats it as decided and immediately propagates its consequences: removing the assigned letter from all other positions' domains (since Wordle answers don't repeat letters, or applying appropriate duplicate-handling constraints if they do). This can trigger a chain reaction: fixing P<sub>2</sub> = 'r' shrinks D(P<sub>0</sub>) and D(P<sub>4</sub>); if D(P<sub>4</sub>) drops to 1, it propagates again. The cascade continues until a fixpoint is reached &mdash; sometimes solving multiple positions for free without ever invoking backtracking. This is the solver's most satisfying optimization to watch in the domain grid.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/forward_check.py</span>
+            <span class="aima">AIMA Ch. 6.2</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 11 -->
+      <div class="fade-slide cat-amber">
+        <div class="slide-content">
+          <div class="cat-label">Pruning &amp; consistency</div>
+          <div class="slide-title-area">
+            <span class="concept-num">11</span>
+            <h3 class="slide-title">Domain filtering (candidate pruning)</h3>
+          </div>
+          <p class="slide-desc">After every round of constraint propagation and consistency enforcement, the solver performs a full pass over the candidate word list. A word w = c<sub>0</sub>c<sub>1</sub>&hellip;c<sub>n-1</sub> survives only if c<sub>i</sub> &isin; D(P<sub>i</sub>) for every position i. This is a direct application of the CSP domains as a filter &mdash; any word containing even one letter that has been eliminated from its position's domain is immediately discarded. The filtering is O(|W| &times; n) where |W| is the current word list size, and it typically shrinks the candidate pool by 60&ndash;95% per guess round. Combined with propagation, it ensures backtracking search only ever considers words that are domain-consistent &mdash; a necessary (though not sufficient) condition for being the answer.</p>
+          <div class="slide-footer">
+            <span class="file-badge">game/words.py &rarr; filter_candidates()</span>
+            <span class="aima">AIMA Ch. 6.1</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 12 -->
+      <div class="fade-slide cat-green">
+        <div class="slide-content">
+          <div class="cat-label">Information theory</div>
+          <div class="slide-title-area">
+            <span class="concept-num">12</span>
+            <h3 class="slide-title">Shannon entropy maximization</h3>
+          </div>
+          <p class="slide-desc">The information-theoretic heart of the solver's guess selection. For each candidate guess g, compute the entropy of the feedback distribution: H(g) = &minus;&sum; p<sub>k</sub> &middot; log<sub>2</sub>(p<sub>k</sub>), where p<sub>k</sub> is the fraction of remaining candidates that would produce feedback pattern k. High entropy means the guess splits the candidate pool into many nearly equal groups &mdash; each outcome carries maximum information, like a perfectly balanced binary tree. Low entropy means most candidates cluster into one or two feedback patterns &mdash; the guess is uninformative. The solver always selects the highest-entropy guess, directly optimizing the expected bits of information gained per turn. This is the single most impactful technique: it's the difference between average solve depths of ~3.5 (entropy-optimal) vs ~5.5 (random selection). Grounded in Shannon's 1948 mathematical theory of communication.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/entropy.py &rarr; compute_entropy()</span>
+            <span class="aima">Shannon 1948 &middot; Cover &amp; Thomas Ch. 2</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 13 -->
+      <div class="fade-slide cat-green">
+        <div class="slide-content">
+          <div class="cat-label">Information theory</div>
+          <div class="slide-title-area">
+            <span class="concept-num">13</span>
+            <h3 class="slide-title">Pattern space simulation (one-step lookahead)</h3>
+          </div>
+          <p class="slide-desc">To compute entropy, the solver must first build the feedback distribution for each guess. For a candidate guess g and each remaining answer a, it simulates the Wordle comparison function to produce a feedback pattern &mdash; a string of green/yellow/grey signals. With n letter positions, there are 3<sup>n</sup> theoretically possible patterns (243 for n=5). The solver groups all remaining candidates by the pattern they'd produce, yielding a probability distribution {p<sub>1</sub>, p<sub>2</sub>, &hellip;, p<sub>m</sub>} over observed patterns. This is conceptually a one-level lookahead, akin to minimax without an adversary: &ldquo;If I guess g, and the world responds with pattern k, how many candidates remain?&rdquo; The guess that minimizes the expected surviving candidate count (equivalently, maximizes entropy) is chosen. The simulation is O(|W|<sup>2</sup> &times; n) in the worst case but is heavily optimized via early termination and pattern caching.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/entropy.py &rarr; compute_pattern_distribution()</span>
+            <span class="aima">AIMA Ch. 5 (adversarial search analogy)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 14 -->
+      <div class="fade-slide cat-coral">
+        <div class="slide-content">
+          <div class="cat-label">State space &amp; search formalism</div>
+          <div class="slide-title-area">
+            <span class="concept-num">14</span>
+            <h3 class="slide-title">Search tree visualization</h3>
+          </div>
+          <p class="slide-desc">The Cytoscape.js graph renders the solver's actual search tree as an interactive directed graph. The root node represents the initial state (full candidate list, unconstrained domains). Each child node represents the state after a guess + feedback round: its label shows the guessed word, remaining candidate count, and domain sizes. Edges encode the constraints applied between states (color-coded feedback). The green path traces the solver's chosen trajectory. Red branches show pruned/rejected alternatives. The teal node marks the goal state (answer found, |candidates| = 1). This is the textbook search tree from AIMA Ch. 3.3 made tangible &mdash; you can click nodes, trace decisions, and see exactly how constraint propagation + entropy ranking navigated the space from ~2,300 candidates to a single answer in 3&ndash;4 steps.</p>
+          <div class="slide-footer">
+            <span class="file-badge">algo/solver.py</span>
+            <span class="aima">AIMA Ch. 3.3 &middot; Ch. 6.5</span>
+          </div>
+        </div>
+      </div>
+
+    </div> <!-- end fade carousel -->
+
+    <div class="carousel-indicators" id="carousel-indicators"></div>
+
+    <div class="pipeline">
+      <span class="pip-step"><span class="pip-num">1</span>AC-3 arc consistency</span>
+      <span class="pip-arrow">&rarr;</span>
+      <span class="pip-step"><span class="pip-num">2</span>Entropy-ranked guess selection</span>
+      <span class="pip-arrow">&rarr;</span>
+      <span class="pip-step"><span class="pip-num">3</span>Backtracking + MRV + LCV</span>
+      <span class="pip-arrow">&rarr;</span>
+      <span class="pip-step"><span class="pip-num">4</span>Optimal guess chosen</span>
+      <span class="pip-arrow">&rarr;</span>
+      <span class="pip-step"><span class="pip-num">5</span>Feedback received (G/Y/&empty;)</span>
+      <span class="pip-arrow">&rarr;</span>
+      <span class="pip-step"><span class="pip-num">6</span>Constraints propagated</span>
+      <span class="pip-arrow">&rarr;</span>
+      <span class="pip-step"><span class="pip-num">7</span>Forward check + singleton cascade</span>
+      <span class="pip-arrow">&rarr;</span>
+      <span class="pip-step"><span class="pip-num">8</span>AC-3 re-enforcement</span>
+      <span class="pip-arrow">&rarr;</span>
+      <span class="pip-step"><span class="pip-num">9</span>Domain-filtered candidates</span>
+      <span class="pip-arrow">&rarr;</span>
+      <span class="pip-step pip-repeat"><span class="pip-num">&circlearrowright;</span>Repeat until |W| = 1</span>
+    </div>
+  </div>
+
+  <!-- Game-end summary modal -->
+  <div class="modal-overlay hidden" id="modal-overlay" onclick="closeModal(event)">
+    <div class="modal-card" id="modal-card">
+      <button class="modal-close" onclick="closeModal({target:$('#modal-overlay')})">&times;</button>
+      <div id="modal-content"></div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+
+</html>
